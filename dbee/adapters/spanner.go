@@ -33,10 +33,40 @@ func (s *Spanner) Connect(url string) (core.Driver, error) {
 }
 
 func (*Spanner) GetHelpers(opts *core.TableOptions) map[string]string {
+	basicConstraintQuery := `
+	SELECT tc.constraint_name, tc.table_name, kcu.column_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, rc.update_rule, rc.delete_rule
+	FROM
+		information_schema.table_constraints AS tc
+		JOIN information_schema.key_column_usage AS kcu
+			ON tc.constraint_name = kcu.constraint_name
+		JOIN information_schema.referential_constraints as rc
+			ON tc.constraint_name = rc.constraint_name
+		JOIN information_schema.constraint_column_usage AS ccu
+			ON ccu.constraint_name = tc.constraint_name
+	`
+
 	return map[string]string{
-		"List":    fmt.Sprintf("SELECT * FROM %q LIMIT 500", opts.Table),
-		"Columns": fmt.Sprintf("SELECT column_name, spanner_type FROM information_schema.columns WHERE table_name = %q", opts.Table),
-		"Indexes": fmt.Sprintf("SELECT * FROM information_schema.indexes WHERE table_name=%q", opts.Table),
+		"List":         fmt.Sprintf("SELECT * FROM %s LIMIT 500", opts.Table),
+		"Columns":      fmt.Sprintf("SELECT column_name, spanner_type FROM information_schema.columns WHERE table_name = '%s'", opts.Table),
+		"Indexes":      fmt.Sprintf("SELECT * FROM information_schema.indexes WHERE table_name='%s'", opts.Table),
+		"Foreign Keys": fmt.Sprintf("SELECT * FROM information_schema.table_contraints WHERE table_name=%q AND constraint_type='FOREIGN KEY'", opts.Table),
+		"Primary Keys": fmt.Sprintf("SELECT * FROM information_schema.table_contraints WHERE table_name=%q AND constraint_type='PRIMARY KEY'", opts.Table),
+		"References":   "",
+		"Check Constraints": fmt.Sprintf(`
+			SELECT
+			  cc.constraint_name,
+			  tc.table_name,
+			  tc.constraint_type,
+			  tc.enforced,
+			  cc.constraint_name,
+			  cc.check_clause,
+			  cc.spanner_state
+			FROM
+			  information_schema.table_constraints as tc
+			  JOIN information_schema.check_constraints as cc on cc.constraint_name = tc.constraint_name
+			WHERE table_name = %q`,
+			opts.Table,
+		),
 		// "Foreign Keys": fmt.Sprintf("%s WHERE constraint_type = 'FOREIGN KEY' AND tc.table_name = '%s' AND tc.table_schema = '%s'",
 		// 	basicConstraintQuery,
 		// 	opts.Table,
